@@ -335,7 +335,7 @@ class Person {
 
 | Aspect | Lit | Stencil | FAST |
 |--------|-----|---------|------|
-| **Syntax** | `html\`...\`` | JSX `<div>...</div>` | `html\`...\`` |
+| **Syntax** | `` html`...` `` | JSX `<div>...</div>` | `` html`...` `` |
 | **Strategy** | Part-based DOM updates | VDOM reconciliation | Observable-to-DOM binding |
 | **Directives** | `repeat`, `guard`, `until` | N/A | Custom `Directive` class |
 
@@ -437,7 +437,7 @@ html`<div class="card">
 
 | Aspect | Lit | Stencil | FAST |
 |--------|-----|---------|------|
-| **Definition** | `css\`...\`` tag | External CSS / inline | `css\`...\`` tag |
+| **Definition** | `` css`...` `` tag | External CSS / inline | `` css`...` `` tag |
 | **Encapsulation** | Shadow DOM | Shadow DOM or scoped | Shadow DOM |
 | **Theming** | CSS custom properties | CSS custom properties | Design tokens |
 
@@ -1490,7 +1490,7 @@ for await (const event of stream(bus, 'click')) {
 
 | Primitive | Description |
 |-----------|-------------|
-| Dynamic CSS with signals | `css\`${() => theme()}\`` |
+| Dynamic CSS with signals | `` css`${() => theme()}` `` |
 | `createTheme()`/`useTheme()` | Design token system |
 | `useMediaQuery()` | Responsive signals |
 | CSS layers | `@layer` support |
