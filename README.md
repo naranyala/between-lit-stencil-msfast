@@ -38,38 +38,152 @@ While native Web Components (Custom Elements, Shadow DOM, HTML Templates) are su
 
 ---
 
-## Part 2: Internal API Primitives & Code Examples
+## Part 2: Framework Deep Dive (Lit, Stencil, FAST)
 
-Understanding how these frameworks implement core primitives is crucial for building your own abstraction.
+Understanding how these three frameworks solve Web Component challenges provides the foundation for building your own abstraction.
 
-### 2.1 Component Base Class Architecture
-**Lit**: Uses runtime inheritance.
-```typescript
-export abstract class ReactiveElement extends HTMLElement {
-  isUpdatePending = false;
-}
+### 2.1 Architecture Overview
+
+| | **Lit** | **Stencil** | **FAST** |
+|---|---------|-------------|----------|
+| **Core Philosophy** | Thin runtime, close to metal | Compiler-first, framework-agnostic output | Performance + Adaptive UI |
+| **Base Class** | `LitElement` extends `HTMLElement` | None (compiler transforms) | `FASTElement` extends `HTMLElement` |
+| **Registration** | `@customElement('name')` or manual | Auto via `@Component` | `MyEl.define({name, template, styles})` |
+| **Rendering** | Tagged templates → Part-based DOM | JSX → Virtual DOM → DOM diff | Tagged templates → Observable bindings |
+| **Reactivity** | Getter/setter + microtask batch | Proxies + rAF | Observable pub/sub + task queue |
+| **Styling** | `css` tag + constructible stylesheets | External CSS files + scoped fallback | `css` tag + Design Tokens |
+| **SSR** | Experimental (`@lit-labs/ssr`) | Built-in pre-rendering | Supported |
+| **DI/Context** | `@lit/context` (event-based) | None (use mixins) | Built-in DI container |
+| **Framework Wrappers** | `@lit/react` (manual) | Auto-generated (React/Angular/Vue) | Framework-agnostic by default |
+
+### 2.2 Reactivity Deep Dive
+
+**Lit — Getter/Setter Interception:**
 ```
-**FAST**:
-```typescript
-class HelloWorld extends FASTElement {
-  @attr name: string;
-}
-HelloWorld.define({ name: "hello-world", template: html`...` });
+Property change → setter called → requestUpdate() → microtask → performUpdate()
 ```
+- Creates accessor descriptors on prototype
+- Batches multiple changes into single microtask
+- Shallow equality by default, customizable via `hasChanged`
+- No deep observation (immutable updates required)
 
-### 2.2 Property Declaration & Reactivity
-**Lit**: Uses getter/setter interception and queues microtasks.
-**Stencil**: Uses Proxies with `requestAnimationFrame`.
-**FAST**: Uses a highly granular Observable system.
+**Stencil — Proxy-based:**
+```
+State mutation → Proxy trap → queueMicrotask → VDOM diff → DOM patch
+```
+- Wraps `@State()` in ES6 Proxies
+- Detects array mutations (push, splice) automatically
+- Uses `requestAnimationFrame` for render scheduling
+- Supports `@Watch()` for side effects on property changes
 
-### 2.3 Template Rendering Engine
-**Lit**: Tagged templates parsed to `<template>`. Part-based DOM updates.
-**Stencil**: JSX to Virtual DOM reconciliation.
-**FAST**: Direct observable-to-DOM bindings (No VDOM).
+**FAST — Observable Pub/Sub:**
+```
+Property access → Observable.track() → subscribe binding
+Property change → Observable.notify() → update specific DOM node
+```
+- Tracks exact dependency graph per binding
+- Updates only the DOM nodes that depend on changed property
+- No component-wide re-renders
+- Array observation via splice records
 
-### 2.4 Styling System
-**Lit**: Constructible stylesheets via `css` tag.
-**FAST**: Built-in Design Tokens (`DesignToken.create()`).
+### 2.3 Template Rendering Deep Dive
+
+**Lit — Part-based (No VDOM):**
+```
+html`<div>${expr}</div>` → parse once → create Part objects → update Part values
+```
+- Parses template into `<template>` with comment markers
+- Creates `NodePart`, `AttributePart`, `BooleanPart` etc.
+- On update: only mutate the Part's node (e.g., `node.textContent = value`)
+- No diffing, no virtual tree
+
+**Stencil — Virtual DOM:**
+```
+JSX → virtual tree → diff with previous tree → patch real DOM
+```
+- Familiar React-like mental model
+- Async rendering via `requestAnimationFrame`
+- Supports `key` prop for list diffing
+- Overhead: creating/updating virtual nodes
+
+**FAST — Direct Observable Binding:**
+```
+html`<div>${x => x.count}</div>` → ViewTemplate → Binding → DOM node
+```
+- Arrow functions capture property access
+- Observable system tracks which bindings depend on which properties
+- On property change: only affected bindings update
+- Fastest theoretical approach (no diffing, no Part objects)
+
+### 2.4 Styling Deep Dive
+
+**Lit:**
+```
+static styles = css`...` → new CSSStyleSheet() → adoptedStyleSheets
+```
+- Native constructible stylesheets (no `<style>` injection)
+- Shared across component instances
+- Composable via array: `static styles = [base, theme, specific]`
+
+**Stencil:**
+```
+@Component({ styleUrl, styleUrls, styles, scoped, shadow })
+```
+- External CSS files processed by compiler
+- Scoped CSS via data attributes (no Shadow DOM required)
+- Shadow DOM optional (fallback to scoped)
+
+**FAST:**
+```
+DesignToken.create('name').withDefault(value) → CSS custom properties
+```
+- Tokens are reactive signals mapped to `--css-var`
+- Changing token value updates all usages automatically
+- Supports complex calculations (e.g., derived colors)
+
+### 2.5 Lifecycle Deep Dive
+
+| Hook | Lit | Stencil | FAST |
+|------|-----|---------|------|
+| Created | `constructor()` | `constructor()` | `constructor()` |
+| Connected | `connectedCallback()` | `connectedCallback()` | `connectedCallback()` |
+| First render | `firstUpdated()` | `componentDidLoad()` | Automatic |
+| Updated | `updated(changedProps)` | `componentDidUpdate()` | `*Changed()` per property |
+| Disconnected | `disconnectedCallback()` | `disconnectedCallback()` | `disconnectedCallback()` |
+| Adopted | — | — | `adoptedCallback()` |
+| Async load | — | `componentWillLoad()` | — |
+
+**Lit** provides a robust lifecycle with `changedProps` map. **Stencil** mirrors React class component lifecycle. **FAST** prefers thin native callbacks + property-specific `*Changed()` methods.
+
+### 2.6 Event System Deep Dive
+
+| | Lit | Stencil | FAST |
+|---|-----|---------|------|
+| **Emit** | `this.dispatchEvent(new CustomEvent(...))` | `@Event() this.event.emit()` | `this.$emit('name', detail)` |
+| **Listen** | `@click="${handler}"` in template | `@Listen('click')` decorator | `@click="${x => x.handler()}"` |
+| **Auto-bubble** | Manual (`bubbles: true`) | Configurable via decorator | Automatic |
+| **Prevent default** | Manual | Manual | Automatic (opt-out with `return true`) |
+
+### 2.7 Decision Guide
+
+| Choose | When |
+|--------|------|
+| **Lit** | Building lightweight components, need smallest bundle, want standards-aligned code, progressive enhancement |
+| **Stencil** | Enterprise design systems consumed by React/Angular/Vue teams, need auto-generated wrappers, prefer JSX |
+| **FAST** | Complex adaptive theming, white-labeling, Microsoft/Fluent ecosystem, need design tokens, maximum performance |
+| **Build your own** | Need fine-grained signals, no VDOM overhead, custom primitives (ElementInternals, DSD), full control |
+
+### 2.8 Key Takeaways for Building Your Own
+
+From studying these frameworks, the essential patterns are:
+
+1. **Base class** should extend `HTMLElement` and manage Shadow DOM creation
+2. **Reactivity** should track dependencies automatically (signals > getters/setters)
+3. **Templates** should parse once, update parts directly (no VDOM)
+4. **Styling** should use constructible stylesheets (no `<style>` injection)
+5. **Lifecycle** should map to native Custom Element callbacks
+6. **Events** should be declarative in templates
+7. **DI/Context** should cross Shadow DOM boundaries
 
 ---
 
