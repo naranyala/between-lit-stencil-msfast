@@ -1295,9 +1295,793 @@ export function once(handler: (e: Event) => void) {
 
 ---
 
-## Part 4: Missing Primitives Reference
+## Part 4: API Primitives — Problem → Solution
 
-### Template Engine
+Each primitive solves a specific problem in web component development.
+
+### 4.1 Signals Layer
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`signal()`** | State changes don't update UI automatically | Manual DOM manipulation on every state change | `count.set(5)` → DOM updates automatically |
+| **`computed()`** | Derived state recalculates on every access | Redundant calculations, stale values | `doubled = computed(() => count() * 2)` → only recalculates when `count` changes |
+| **`effect()`** | Side effects (logging, API calls) need to run when state changes | Manual subscription management, memory leaks | `effect(() => fetch(count()))` → auto-reruns on change, auto-cleans on disconnect |
+| **`batch()`** | Multiple state changes cause multiple re-renders | N renders for N changes | `batch(() => { a.set(1); b.set(2); })` → 1 render |
+| **`untrack()`** | Reading state subscribes to it (unwanted side effect) | Accidental re-runs, infinite loops | `untrack(() => name())` → read without subscribing |
+| **`peek()`** | Need current value without triggering effect | Subscription created, effect re-runs | `peek(() => count())` → one-time read |
+| **`onCleanup()`** | Effects need cleanup (timers, subscriptions) | Memory leaks, stale subscriptions | `onCleanup(() => clearInterval(id))` → runs on dispose |
+| **`createRoot()`** | No way to own and dispose a group of effects | Manual cleanup of multiple effects | `dispose = createRoot(...)` → `dispose()` cleans all |
+| **`produce()`** | Immutable state updates are verbose | `items.set([...items(), newItem])` | `produce(items, draft => draft.push(new))` |
+
+**Concrete Example:**
+```typescript
+// Problem: Counter needs to update UI when count changes
+// Without signal:
+let count = 0;
+document.getElementById('display').textContent = count; // Manual!
+document.getElementById('btn').onclick = () => {
+  count++;
+  document.getElementById('display').textContent = count; // Manual again!
+};
+
+// With signal:
+const count = signal(0);
+html`<div>${count()}</div>` // Auto-updates
+html`<button @click=${() => count.set(count() + 1)}>+</button>` // Just set, no manual DOM
+```
+
+---
+
+### 4.2 Element Base Class
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`SignalElement`** | Every component needs Shadow DOM, lifecycle, update scheduling | Copy-paste boilerplate for every component | Extend once, get everything |
+| **`attachShadow()`** | Styles leak between components | Global CSS conflicts | `this.attachShadow({mode: 'open'})` → isolated styles |
+| **`requestUpdate()`** | Manual DOM updates on every state change | Verbose, error-prone DOM manipulation | Call once → microtask batches and renders |
+| **`connectedCallback`** | Need to know when element enters DOM | No lifecycle awareness | `connectedCallback()` → setup listeners, start effects |
+| **`disconnectedCallback`** | Need to clean up when element leaves DOM | Memory leaks from orphaned listeners | `disconnectedCallback()` → cleanup effects, listeners |
+
+**Concrete Example:**
+```typescript
+// Problem: Component needs to fetch data when mounted, clean up on unmount
+// Without base class:
+class MyEl extends HTMLElement {
+  connectedCallback() {
+    this.attachShadow({ mode: 'open' });
+    this.shadowRoot.innerHTML = '<div>Loading...</div>';
+    fetch('/api/data').then(r => r.json()).then(data => {
+      this.shadowRoot.innerHTML = `<div>${data.name}</div>`;
+    });
+  }
+  disconnectedCallback() {
+    // What to clean up? Nothing tracked.
+  }
+}
+
+// With SignalElement:
+class MyEl extends SignalElement {
+  private data = signal(null);
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.createEffect(() => {
+      // Auto-tracks signal dependencies
+      // Auto-cleans on disconnect
+      fetch('/api/data').then(r => r.json()).then(d => this.data.set(d));
+    });
+  }
+
+  render() {
+    return html`<div>${this.data()}</div>`;
+  }
+}
+```
+
+---
+
+### 4.3 Template Engine
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`html` tag** | Templates are string-concatenation hell | `'<div>' + name + '</div>'` (XSS risk) | `` html`<div>${name}</div>` `` (safe, reactive) |
+| **Marker comments** | Need to find where dynamic values go in template | Parse HTML string repeatedly | `<!--marker-0-->` → TreeWalker finds once, binds forever |
+| **`Show`/`When`** | Conditional rendering tears down/recreates DOM | `if/else` with `innerHTML` (losing state) | `<${Show} when=${cond}>...</${Show}>` → toggles, preserves state |
+| **`For` with key** | List re-rendering is O(n²) | Re-render entire list on any change | `key=${item.id}` → only moves/adds/removes changed items |
+| **Slots** | No way to pass content into Shadow DOM | Light DOM content inaccessible | `<slot name="header">` → project parent content |
+| **`Lazy`** | Large templates load eagerly | Slow initial load, wasted bandwidth | `lazy(() => import('./big.js'))` → load on demand |
+
+**Concrete Example:**
+```typescript
+// Problem: Render a list of 1000 items, update only one
+// Without keyed diffing:
+function renderList(items) {
+  container.innerHTML = items.map(i => `<div>${i.name}</div>`).join('');
+  // Recreates ALL 1000 DOM nodes for ONE change!
+}
+
+// With For + key:
+html`<${For} each=${() => items} key=${i => i.id}>
+  ${(item) => html`<div>${item.name}</div>`}
+<//>`
+// Only the changed item's DOM node is updated. 999 untouched.
+```
+
+---
+
+### 4.4 Styling System
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **Constructible stylesheets** | Same `<style>` tag duplicated per component instance | Memory overhead, style duplication | `new CSSStyleSheet()` → shared across instances |
+| **`css` tag** | Styles are strings, no syntax checking | Typos in CSS, no autocomplete | `` css`:host { display: block }` `` → validated, tree-shakeable |
+| **Design tokens** | Theming requires changing CSS variables everywhere | Manual `--var` updates, easy to miss | `primaryColor.withDefault('#f00')` → all components update |
+| **CSS layers** | Third-party styles override yours | `!important` wars | `@layer base, components` → explicit cascade |
+| **Media query signals** | Responsive logic is imperative, hard to test | `window.matchMedia` + manual listeners | `const mobile = useMediaQuery('(max-width: 768px)')` → reactive signal |
+
+**Concrete Example:**
+```typescript
+// Problem: Theme switching requires updating many CSS variables
+// Without tokens:
+document.documentElement.style.setProperty('--primary', '#f00');
+document.documentElement.style.setProperty('--text', '#fff');
+// Must update every variable manually
+
+// With tokens:
+const primary = DesignToken.create('primary').withDefault('#3b82f6');
+const text = DesignToken.create('text').withDefault('#1f2937');
+
+// Switch theme
+primary.withDefault('#ef4444');
+text.withDefault('#ffffff');
+// All components using these tokens update automatically
+```
+
+---
+
+### 4.5 Lifecycle & Observers
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`onMount()`** | Need setup logic when element enters DOM | Override `connectedCallback` every time | `onMount(() => this.init())` → cleaner API |
+| **`onUnmount()`** | Need cleanup when element leaves DOM | Override `disconnectedCallback` every time | `onUnmount(() => this.destroy())` → cleaner API |
+| **`useResizeObserver()`** | Component needs to respond to size changes | Manual ResizeObserver setup/teardown | `const { width, height } = useResizeObserver()` → reactive signal |
+| **`useIntersectionObserver()`** | Lazy loading, infinite scroll, visibility tracking | Complex IntersectionObserver boilerplate | `const { isVisible } = useIntersectionObserver()` → simple boolean |
+| **`useMutationObserver()`** | React to DOM changes inside component | Manual MutationObserver setup | `const { mutations } = useMutationObserver()` → reactive |
+
+**Concrete Example:**
+```typescript
+// Problem: Lazy-load images when they scroll into view
+// Without IntersectionObserver:
+class LazyImage extends SignalElement {
+  connectedCallback() {
+    this.observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        this.loadImage();
+        this.observer.disconnect();
+      }
+    }, { threshold: 0.1 });
+    this.observer.observe(this);
+  }
+  disconnectedCallback() {
+    this.observer?.disconnect();
+  }
+}
+
+// With useIntersectionObserver:
+class LazyImage extends SignalElement {
+  render() {
+    const { ref, isVisible } = useIntersectionObserver({ threshold: 0.1 });
+    return html`
+      <div ref=${ref}>
+        ${isVisible() ? html`<img src=${this.src} />` : html`<div class="placeholder" />`}
+      </div>
+    `;
+  }
+}
+```
+
+---
+
+### 4.6 Event System
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`emit()`** | Custom events are verbose and error-prone | `new CustomEvent('name', {detail, bubbles, composed})` | `this.$emit('name', detail)` → 3 lines → 1 line |
+| **`delegate()`** | Many dynamic elements need the same listener | Add/remove listener per element | `delegate(container, '.btn', 'click', handler)` → one listener handles all |
+| **`prevent()`/`stop()`** | Event modifiers are boilerplate | `e.preventDefault(); handler(e);` | `@submit=${prevent(onSubmit)}` → declarative |
+| **`createBus()`** | Cross-component communication is complex | Props drilling, global variables | `bus.on('user:created', handler)` → decoupled |
+| **`stream()`** | Async event handling is callback-heavy | Nested callbacks, hard to compose | `for await (const e of stream(bus, 'click'))` → clean async |
+
+**Concrete Example:**
+```typescript
+// Problem: Form submission needs preventDefault + validation
+// Without modifiers:
+html`<form @submit=${(e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  this.handleSubmit(e);
+}}>...</form>`
+
+// With modifiers:
+html`<form @submit=${prevent(stop(this.handleSubmit))}>...</form>`
+```
+
+---
+
+### 4.7 Composition & DI
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`provide()`/`inject()`** | Props drilling through many levels | Pass props through 5+ components | Parent provides, deep child injects |
+| **`mixin()`** | Shared behavior across unrelated components | Copy-paste code, deep inheritance | `class MyEl extends Draggable(Resizable(Component))` |
+| **`withTheme()`** | Theme access needed in many components | Pass theme prop everywhere | `class MyEl extends withTheme(Component)` → `this.theme` |
+| **`ErrorBoundary`** | One component crash kills entire app | Unhandled errors crash UI | `<${ErrorBoundary} fallback=${...}>` → catches, shows fallback |
+| **`Suspense`** | Async data loading blocks UI | Spinner logic in every component | `<${Suspense} fallback=${...}>` → shows fallback while loading |
+
+**Concrete Example:**
+```typescript
+// Problem: Theme needed in deeply nested component
+// Without context:
+<app>
+  <header theme=${theme}>
+    <nav theme=${theme}>
+      <button theme=${theme}>Click</button>  // theme passed 3 levels!
+    </nav>
+  </header>
+</app>
+
+// With provide/inject:
+const ThemeContext = createContext('light');
+
+class App extends Component {
+  provide('theme', this.theme);  // Provide once
+}
+
+class Button extends Component {
+  theme = consume(ThemeContext);  // Inject anywhere
+}
+```
+
+---
+
+### 4.8 Performance
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`memo()`** | Expensive computations run on every render | Recalculate on every state change | `memo(fn, {equals: shallowEqual})` → only when inputs change |
+| **`lazy()`** | Large components slow initial load | Bundle everything upfront | `lazy(() => import('./Big.js'))` → code-split |
+| **`virtualScroll`** | 10,000 items can't all be in DOM | Browser crashes, slow scroll | Render only visible items (~20), recycle DOM nodes |
+| **`idleSchedule()`** | Heavy work blocks main thread | Janky UI during computation | `idleSchedule(() => process())` → runs when browser idle |
+
+**Concrete Example:**
+```typescript
+// Problem: Render 10,000 list items without freezing
+// Without virtual scroll:
+html`<div>
+  ${items.map(item => html`<div>${item.name}</div>`)}
+</div>`  // 10,000 DOM nodes = crash
+
+// With virtual scroll:
+html`<${virtualScroll} items=${items} height=${500} itemHeight=${40}>
+  ${(item) => html`<div>${item.name}</div>`}
+<//>`
+// Only ~15 DOM nodes exist at any time
+```
+
+---
+
+### 4.9 SSR & Hydration
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **DSD output** | Screen shows blank until JS loads | White flash, bad SEO | `<template shadowrootmode="open">` → browser renders HTML before JS |
+| **Resumability** | Hydration runs ALL component JS on load | Slow time-to-interactive | Serialize state to HTML, load JS only on interaction |
+| **Progressive hydration** | All components hydrate at once | Delayed interactivity | Hydrate visible components first, rest on demand |
+
+**Concrete Example:**
+```typescript
+// Problem: User sees blank page for 2 seconds while JS loads
+// Without SSR:
+// 1. Browser downloads HTML (empty shell)
+// 2. Browser downloads JS bundle
+// 3. JS executes, renders components
+// 4. User sees content (2s delay)
+
+// With DSD:
+// 1. Server renders <template shadowrootmode="open"> with content
+// 2. Browser shows content immediately (0ms)
+// 3. JS loads in background
+// 4. JS hydrates interactive parts
+```
+
+---
+
+### 4.10 Testing
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`render()`** | Testing components requires DOM setup | `document.createElement`, manual cleanup | `render(Component)` → auto-setup, auto-cleanup |
+| **`fireEvent()`** | Simulating user interaction is verbose | `new MouseEvent(...)`, `dispatchEvent` | `fireEvent.click(element)` → one line |
+| **`waitFor()`** | Async assertions are flaky | `setTimeout` hacks, race conditions | `waitFor(() => expect(...))` → proper async waiting |
+| **`mockSignal()`** | Testing signal behavior is manual | Create real signals, track manually | `mockSignal(initial)` → controllable mock |
+
+**Concrete Example:**
+```typescript
+// Problem: Test that clicking button updates counter
+// Without testing utilities:
+it('increments counter', async () => {
+  const el = document.createElement('my-counter');
+  document.body.appendChild(el);
+  await el.updateComplete;
+
+  const btn = el.shadowRoot.querySelector('button');
+  btn.click();
+  await el.updateComplete;
+
+  expect(el.count).toBe(1);
+  document.body.removeChild(el); // Manual cleanup
+});
+
+// With testing utilities:
+it('increments counter', async () => {
+  const { getByText } = render(MyCounter);
+
+  await fireEvent.click(getByText('+'));
+
+  expect(getByText('Count: 1')).toBeTruthy();
+  // Auto-cleanup
+});
+```
+
+---
+
+### 4.11 Accessibility
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`aria()`** | ARIA attributes are verbose strings | `aria-pressed="${pressed}"` | `aria({ pressed: isPressed })` → type-safe |
+| **`useFocus()`** | Focus management across Shadow DOM | Manual `element.focus()`, tab trapping | `const { ref, focus, blur } = useFocus()` → reactive |
+| **`useKeyboard()`** | Keyboard navigation is repetitive | `addEventListener('keydown', ...)` per key | `useKeyboard({ Enter: handler })` → declarative |
+| **`announce()`** | Screen reader announcements are tricky | Create live regions manually | `announce('Added to cart', 'polite')` → one line |
+| **`liveRegion()`** | Dynamic content not announced | ARIA live region boilerplate | `liveRegion('polite')` → auto-announces changes |
+
+**Concrete Example:**
+```typescript
+// Problem: Announce status changes to screen readers
+// Without a11y primitives:
+html`<div aria-live="polite" aria-atomic="true" role="status"
+  id="announcer"></div>`;
+
+// After state change:
+document.getElementById('announcer').textContent = 'Item added to cart';
+
+// With announce():
+announce('Item added to cart', 'polite');
+// Creates live region, sets text, cleans up automatically
+```
+
+---
+
+### 4.12 Animation
+
+| Primitive | Problem It Solves | Without It | With It |
+|-----------|-------------------|-------------|---------|
+| **`animate()`** | CSS animations need class toggling | Manual classList.add/remove | `animate('fade', {duration: 300})` → declarative |
+| **`useGesture()`** | Touch/gesture handling is complex | Touch event math, velocity calc | `useGesture({ onSwipe: handler })` → simple API |
+| **`useScrollAnimation()`** | Scroll-based animations need rAF loops | Manual scroll listener + rAF | `useScrollAnimation()` → reactive progress signal |
+| **`viewTransition()`** | Page transitions are jarring | No native transition API | `viewTransition(() => {...})` → native 60fps transitions |
+
+**Concrete Example:**
+```typescript
+// Problem: Animate element when it appears
+// Without animation primitive:
+class MyEl extends SignalElement {
+  connectedCallback() {
+    this.shadowRoot.querySelector('.box').animate([
+      { opacity: 0, transform: 'translateY(20px)' },
+      { opacity: 1, transform: 'translateY(0)' }
+    ], { duration: 300, easing: 'ease-out' });
+  }
+}
+
+// With animate():
+html`<div ${animate('slide-in', { duration: 300 })}>Content</div>`
+// CSS @keyframes defined once, applied declaratively
+```
+
+---
+
+## Part 5: Pruned Primitives (Redundant/Unnecessary)
+
+### Removed Primitives
+
+| Primitive | Why Removed |
+|-----------|-------------|
+| **`peek()`** | Redundant with `untrack()`. Both read without subscribing. `untrack()` is the standard name (Solid, TC39). |
+| **`onMount()`/`onUnmount()`** | Redundant with `connectedCallback`/`disconnectedCallback`. These are native Custom Element lifecycle hooks — adding wrappers adds complexity without benefit. |
+| **`onRender()`/`onUpdate()`** | Nice-to-have but rarely needed. Override `performUpdate()` directly instead. |
+| **`withTheme()`** | Redundant with `provide/inject`. Theme is just a context — no special primitive needed. |
+| **`liveRegion()`** | Redundant with `announce()`. `announce()` creates a live region internally. |
+| **`stream()`** | Too niche. Events are fire-and-forget by design. Streaming events add complexity for rare use cases. |
+| **`useGesture()`** | Too niche for a core framework. Touch/gesture handling is app-specific, not component-specific. |
+| **`mockSignal()`** | Test utility, not a framework primitive. Use real signals in tests. |
+| **`produce()`** | Nice-to-have. Immutable updates are verbose but predictable. Can be added later as opt-in. |
+| **CSS layers** | Browser feature, not a framework primitive. Use `@layer` directly in CSS. |
+| **Progressive hydration** | Advanced SSR feature. Defer to SSR-specific libraries. |
+
+### Kept Primitives (Essential + Important)
+
+**Tier 1: Must-have (core framework won't work without these)**
+- `signal()`, `computed()`, `effect()`
+- `batch()`, `untrack()`, `onCleanup()`
+- `createRoot()`
+- `SignalElement` base class
+- `html` tagged template
+- `css` tagged template
+- `Show`/`For` control flow
+- `provide()`/`inject()`
+- `ErrorBoundary`
+
+**Tier 2: Important (production-quality framework needs these)**
+- `delegate()`
+- `prevent()`/`stop()`
+- `Suspense`
+- `memo()`, `lazy()`
+- `aria()`
+- `render()`, `fireEvent()`, `waitFor()`
+
+**Tier 3: Nice-to-have (can be added later or as plugins)**
+- `DesignToken`
+- `useResizeObserver()`, `useIntersectionObserver()`
+- `virtualScroll`
+- `announce()`
+- `useFocus()`, `useKeyboard()`
+- `animate()`
+- `viewTransition()`
+- DSD output, Resumability
+
+---
+
+## Part 6: Missing Primitives (Not Yet Covered)
+
+These primitives are missing from the current list and are important for a complete framework.
+
+### 6.1 `resource()` — Async Data Fetching
+
+**Problem**: Every component that fetches data needs the same boilerplate (loading state, error state, refetch).
+
+```typescript
+// Without resource:
+class UserCard extends SignalElement {
+  user = signal(null);
+  loading = signal(true);
+  error = signal(null);
+
+  async loadUser(id: number) {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const res = await fetch(`/api/users/${id}`);
+      this.user.set(await res.json());
+    } catch (e) {
+      this.error.set(e);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+}
+
+// With resource:
+const user = resource(
+  () => this.userId,  // dependency signal
+  async (id) => {
+    const res = await fetch(`/api/users/${id}`);
+    return res.json();
+  }
+);
+
+// In template:
+html`
+  <${Suspense} fallback=${html`<div>Loading...</div>`}>
+    <div>${() => user.data()?.name}</div>
+  <//>
+  <${Show} when=${() => user.error()}>
+    <div class="error">${() => user.error()?.message}</div>
+  <//>
+`
+```
+
+### 6.2 `createContext()` — Standalone Context Creation
+
+**Problem**: Context creation is tied to decorators or class syntax. Need a simple function.
+
+```typescript
+// Current (requires decorators):
+@provide({ context: ThemeContext })
+theme = 'light';
+
+// Better (standalone function):
+const ThemeContext = createContext('light');
+
+// Provider
+function ThemeProvider({ children }) {
+  const theme = signal('light');
+  provide(ThemeContext, theme);
+  return children;
+}
+
+// Consumer
+function ThemedButton() {
+  const theme = useContext(ThemeContext);
+  return html`<button style="background: ${theme() === 'dark' ? '#333' : '#fff'}">
+    Click
+  </button>`;
+}
+```
+
+### 6.3 `useStore()` — Cross-Component State
+
+**Problem**: Signals are component-local. Need shared state without prop drilling or context.
+
+```typescript
+// Without store:
+// Each component creates its own signals, no shared state
+
+// With store:
+const counterStore = createStore({
+  count: signal(0),
+  increment() { this.count.set(this.count() + 1); },
+  decrement() { this.count.set(this.count() - 1); },
+});
+
+// In any component:
+class MyCounter extends SignalElement {
+  private store = useStore(counterStore);
+
+  render() {
+    return html`
+      <div>Count: ${this.store.count()}</div>
+      <button @click=${() => this.store.decrement()}>-</button>
+      <button @click=${() => this.store.increment()}>+</button>
+    `;
+  }
+}
+```
+
+### 6.4 `useTransition()` — Async Transitions
+
+**Problem**: Async state updates cause janky UI (loading spinners everywhere).
+
+```typescript
+// Without transition:
+const data = signal(null);
+const loading = signal(false);
+
+async function fetchData() {
+  loading.set(true);  // UI flickers to loading state
+  data.set(await api.getData());
+  loading.set(false);
+}
+
+// With transition:
+const data = signal(null);
+const isPending = useTransition();
+
+async function fetchData() {
+  isPending(true);  // Show stale content + pending indicator
+  data.set(await api.getData());
+  isPending(false);  // Swap to new content
+}
+
+// In template:
+html`<div class="${isPending() ? 'stale' : 'fresh'}">
+  ${data()}
+</div>`
+```
+
+### 6.5 `useId()` — Stable Unique IDs
+
+**Problem**: ARIA relationships need matching IDs across components. Random IDs break on re-render.
+
+```typescript
+// Without useId:
+class MyInput extends SignalElement {
+  render() {
+    const id = Math.random().toString(36).slice(2); // Changes on every render!
+    return html`
+      <input id=${id} aria-describedby=${`error-${id}`} />
+      <div id=${`error-${id}`}>Error message</div>
+    `;
+  }
+}
+
+// With useId:
+class MyInput extends SignalElement {
+  render() {
+    const id = useId(); // Stable across re-renders
+    return html`
+      <input id=${id} aria-describedby=${`${id}-error`} />
+      <div id=${`${id}-error`}>Error message</div>
+    `;
+  }
+}
+```
+
+### 6.6 `useModel()` — Two-Way Binding
+
+**Problem**: Two-way binding requires verbose event handlers.
+
+```typescript
+// Without model:
+html`<input
+  :value="${x => x.name}"
+  @input="${(x, c) => x.name = c.event.target.value}"
+/>`
+
+// With model:
+html`<input :model="${x => x.name}" />`
+// Automatically syncs value ↔ attribute ↔ signal
+```
+
+### 6.7 ` портал()` — Render Outside Shadow DOM
+
+**Problem**: Modals, tooltips, popovers need to render outside component's Shadow DOM.
+
+```typescript
+// Without portal:
+// Must use light DOM or global overlay system
+
+// With portal:
+html`<${Portal} target=${document.body}>
+  <div class="modal-overlay">
+    <div class="modal">Content</div>
+  </div>
+<//>`
+// Renders in document.body, but scoped to component's signals
+```
+
+### 6.8 `useMediaQuery()` — Responsive Signals
+
+**Problem**: Responsive design requires imperative `matchMedia` listeners.
+
+```typescript
+// Without:
+const mql = window.matchMedia('(max-width: 768px)');
+const isMobile = signal(mql.matches);
+mql.addEventListener('change', (e) => isMobile.set(e.matches));
+
+// With:
+const isMobile = useMediaQuery('(max-width: 768px)');
+// Reactive signal, auto-cleanup on disconnect
+
+// In template:
+html`<div>${isMobile() ? 'Mobile layout' : 'Desktop layout'}</div>`
+```
+
+### 6.9 `useFetch()` — Data Fetching with Caching
+
+**Problem**: Every fetch call needs cache invalidation, deduplication, revalidation logic.
+
+```typescript
+// Without:
+// Manual cache management, race conditions, stale data
+
+// With:
+const { data, error, isLoading, refetch } = useFetch('/api/users', {
+  // Dedup concurrent requests
+  dedupe: true,
+  // Revalidate on focus
+  revalidateOnFocus: true,
+  // Cache for 5 minutes
+  cache: { ttl: 5 * 60 * 1000 },
+});
+
+// In template:
+html`
+  <${Show} when=${isLoading}>
+    <div>Loading...</div>
+  <//>
+  <${Show} when=${() => error()}>
+    <div>Error: ${() => error()?.message}</div>
+  <//>
+  <${Show} when=${() => data()}>
+    <div>${() => data()?.name}</div>
+  <//>
+`
+```
+
+### 6.10 `useOnline()` — Network Status
+
+**Problem**: Offline/online detection is boilerplate.
+
+```typescript
+// Without:
+const online = signal(navigator.onLine);
+window.addEventListener('online', () => online.set(true));
+window.addEventListener('offline', () => online.set(false));
+
+// With:
+const online = useOnline();
+// Reactive signal, auto-cleanup
+
+// In template:
+html`<div class="status-dot ${online() ? 'green' : 'red'}"></div>`
+```
+
+### 6.11 `useInterval()` — Timer Hook
+
+**Problem**: `setInterval` needs cleanup, pause/resume, and signal integration.
+
+```typescript
+// Without:
+let timer;
+connectedCallback() {
+  timer = setInterval(() => this.tick(), 1000);
+}
+disconnectedCallback() {
+  clearInterval(timer);
+}
+
+// With:
+useInterval(() => this.tick(), 1000);
+// Auto-cleanup on disconnect, pause/resume support
+
+// With pause:
+const [start, stop] = useInterval(() => this.tick(), 1000);
+html`<button @click=${stop}>Pause</button>`
+```
+
+### 6.12 `useClickOutside()` — Click Outside Detection
+
+**Problem**: Dropdowns, modals need to close on outside click. Boilerplate to implement correctly.
+
+```typescript
+// Without:
+connectedCallback() {
+  this.handler = (e) => {
+    if (!this.contains(e.target)) this.close();
+  };
+  document.addEventListener('click', this.handler);
+}
+disconnectedCallback() {
+  document.removeEventListener('click', this.handler);
+}
+
+// With:
+useClickOutside(() => this.close());
+// Auto-cleanup, handles Shadow DOM correctly
+```
+
+---
+
+## Part 7: Missing Primitives Reference
+
+### Highlight: Top API Primitives & The Problems They Solve
+
+Before diving into the exhaustive list, here are the most critical primitives you need when building a custom framework, and exactly what problems they solve:
+
+1. **`ElementInternals` (`@formAssociated`)**
+   * **The Problem:** Web Components act like opaque boxes to native `<form>` tags. A custom `<my-checkbox>` won't submit its data in a standard form post, nor will it respond to CSS pseudo-classes like `:state(invalid)` out of the box, forcing developers to hack hidden inputs.
+   * **The Solution:** The `attachInternals()` API allows your Web Component to seamlessly participate in form submissions, report custom validity, and natively use modern CSS `:state()` selectors.
+
+2. **`untrack()` (or `peek()`) in Signals**
+   * **The Problem:** Sometimes you need to read a Signal's value inside an `effect()`, but you *don't* want that effect to re-run when the Signal changes. For example, logging a network request that includes the current `filter` state, without re-triggering the network request every time `filter` changes.
+   * **The Solution:** `untrack(() => filter())` lets you read the current value while temporarily pausing the dependency tracker, preventing infinite loops and over-rendering.
+
+3. **`batch()` for Signals**
+   * **The Problem:** If you update three separate signals synchronously (`firstName.set('A'); lastName.set('B'); age.set('C');`), the reactivity system might trigger three separate DOM render cycles, causing UI thrashing and terrible performance.
+   * **The Solution:** `batch(() => { ... })` groups all signal updates into a single transaction, ensuring the DOM is only updated exactly once after the block completes.
+
+4. **Declarative `<Suspense>`**
+   * **The Problem:** Handling async data fetching in UI usually requires messy boilerplate: `if (loading) return <Spinner/>; else return <Data/>;`. If a component deep in the tree fetches data, the parent has to awkwardly manage that state to prevent layout jumps.
+   * **The Solution:** A `<Suspense>` wrapper automatically catches unresolved Promises originating from its children and renders a fallback UI, then hot-swaps to the final DOM once the data arrives, keeping components clean and focused.
+
+5. **DOM `Part` Bindings (Instead of Virtual DOM)**
+   * **The Problem:** Virtual DOMs (like Stencil) require re-rendering the entire component tree into memory and running a diffing algorithm on every state change, eating up CPU and memory.
+   * **The Solution:** Tagged templates (like Lit/FAST) parse once into a `<template>` and map dynamic variables to exact `Part` references (e.g., a specific text node). When state changes, it directly mutates `node.textContent = newValue`, bypassing diffing entirely.
+
+---### Template Engine
 
 | Primitive | Description |
 |-----------|-------------|
@@ -1397,10 +2181,10 @@ const value = this.count.peek();
 | Primitive | Description |
 |-----------|-------------|
 | `@prop()` with attribute reflection | Auto property↔attribute sync |
-| `:model` directive | Two-way binding |
 | `ref()` | Element references |
-| `forceUpdate()` | Manual re-render |
-| `ErrorBoundary` | Catch child errors |
+| `useId()` | Unique ID generation (survives SSR hydration) |
+| `createResource()` | Async data fetching integrated with Suspense |
+| `ErrorBoundary` / `catchError()` | Catch child errors and signal errors |
 | `Portal` | Render to different DOM node |
 
 **Ref and Portal:**
@@ -1469,20 +2253,18 @@ onVisible(() => startAnimation());
 | `delegate()` | Event delegation |
 | `createEvent()` | Custom event factory |
 | `prevent()`/`stop()`/`once()` | Event modifiers |
-| `createBus(name)` | Namespaced event bus |
-| `stream(bus, event)` | AsyncIterator event stream |
+| `isServer` / `hydrate()` | SSR context flags and hydration hooks |
 
-**Event Bus and Stream:**
+**Event Stream & SSR:**
 ```typescript
-// Namespaced bus
-const appBus = createBus('app');
-const userBus = createBus('user');
-appBus.on('ready', init);
-userBus.on('created', handleUserCreated);
-
 // Event stream
-for await (const event of stream(bus, 'click')) {
+for await (const event of stream(document.body, 'click')) {
   console.log('Click:', event);
+}
+
+// SSR check
+if (!isServer) {
+  hydrate(document.body, MyComponent);
 }
 ```
 
