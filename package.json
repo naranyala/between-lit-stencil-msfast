@@ -1,0 +1,19 @@
+{
+  "name": "between-lit-stencil-msfast",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@lit/context": "^1.1.6",
+    "@microsoft/fast-components": "^2.30.6",
+    "@microsoft/fast-element": "^3.0.1",
+    "@stencil/core": "^4.43.5",
+    "lit": "^3.3.3"
+  }
+}

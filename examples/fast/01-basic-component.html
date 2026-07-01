@@ -1,0 +1,84 @@
+<!-- FAST: Basic Component (Browser) -->
+<!-- Open this file in a browser to see FAST in action -->
+<!-- Run: open examples/fast/01-basic-component.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAST: Basic Component</title>
+  <script type="module">
+    import { FASTElement, html, css, attr } from '/node_modules/@microsoft/fast-element/dist/esm/index.js';
+    import { provideFASTDesignSystem, fastButton } from '/node_modules/@microsoft/fast-components/dist/esm/index.js';
+
+    // Register FAST design system
+    provideFASTDesignSystem().register(fastButton());
+
+    // Define a custom FAST element
+    class FASTCounter extends FASTElement {
+      @attr count = 0;
+
+      increment() {
+        this.count++;
+        this.$emit('count-changed', { count: this.count });
+      }
+
+      decrement() {
+        if (this.count > 0) {
+          this.count--;
+          this.$emit('count-changed', { count: this.count });
+        }
+      }
+
+      reset() {
+        this.count = 0;
+      }
+    }
+
+    // Define the element with template and styles
+    FASTCounter.define({
+      name: 'fast-counter',
+      template: html`
+        <div>
+          <h2>FAST Counter</h2>
+          <div class="count" style="font-size: 2rem; font-weight: bold;">${x => x.count}</div>
+          <fast-button @click=${x => x.decrement()}>-</fast-button>
+          <fast-button appearance="accent" @click=${x => x.increment()}>+</fast-button>
+          <fast-button @click=${x => x.reset()}>Reset</fast-button>
+        </div>
+      `,
+      styles: css`
+        :host {
+          display: block;
+          padding: 16px;
+          font-family: system-ui;
+        }
+        .count {
+          margin: 16px 0;
+          color: var(--accent-fill-rest);
+        }
+        fast-button {
+          margin: 0 4px;
+        }
+      `
+    });
+
+    console.log('FAST counter component defined');
+  </script>
+</head>
+<body>
+  <h1>FAST: Observable Reactivity</h1>
+  <p>This component uses FAST's Observable system for fine-grained reactivity.</p>
+
+  <fast-counter></fast-counter>
+
+  <h2>Key Concepts:</h2>
+  <ul>
+    <li><strong>Observable.track()</strong> — Automatically tracks property access</li>
+    <li><strong>Observable.notify()</strong> — Notifies only dependent bindings</li>
+    <li><strong>No VDOM</strong> — Direct DOM updates, no diffing</li>
+    <li><strong>Design Tokens</strong> — Reactive CSS custom properties</li>
+  </ul>
+</body>
+</html>

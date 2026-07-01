@@ -1,0 +1,125 @@
+<!-- FAST: Design Tokens (Browser) -->
+<!-- Open this file in a browser to see FAST Design Tokens in action -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAST: Design Tokens</title>
+  <script type="module">
+    import { FASTElement, html, css, attr } from '/node_modules/@microsoft/fast-element/dist/esm/index.js';
+    import { provideFASTDesignSystem, fastButton } from '/node_modules/@microsoft/fast-components/dist/esm/index.js';
+    import { DesignToken } from '/node_modules/@microsoft/fast-element/dist/esm/design-token.js';
+
+    // Register FAST design system
+    provideFASTDesignSystem().register(fastButton());
+
+    // ═══════════════════════════════════════════════════════════
+    // README §2.4 FAST Styling:
+    // "DesignToken.create('name').withDefault(value) → CSS custom properties"
+    // "Tokens are reactive signals mapped to --css-var"
+    // "Changing token value updates all usages automatically"
+    // ═══════════════════════════════════════════════════════════
+
+    // Create design tokens
+    const backgroundColor = DesignToken.create('background-color').withDefault('#ffffff');
+    const textColor = DesignToken.create('text-color').withDefault('#1f2937');
+    const accentColor = DesignToken.create('accent-color').withDefault('#3b82f6');
+    const spacing = DesignToken.create('spacing').withDefault('16px');
+    const borderRadius = DesignToken.create('border-radius').withDefault('8px');
+
+    // Theme definitions
+    const themes = {
+      light: {
+        bg: '#ffffff',
+        text: '#1f2937',
+        accent: '#3b82f6',
+      },
+      dark: {
+        bg: '#1f2937',
+        text: '#f9fafb',
+        accent: '#60a5fa',
+      },
+    };
+
+    let currentTheme = 'light';
+
+    function toggleTheme() {
+      currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+      const t = themes[currentTheme];
+
+      // Update tokens — all usages update automatically!
+      backgroundColor.setValue(t.bg);
+      textColor.setValue(t.text);
+      accentColor.setValue(t.accent);
+
+      console.log(`Theme toggled to: ${currentTheme}`);
+      console.log(`Tokens updated: bg=${t.bg}, text=${t.text}, accent=${t.accent}`);
+    }
+
+    // Define a themed component
+    class ThemeCard extends FASTElement {
+      @attr title = 'Theme Card';
+
+      toggleTheme() {
+        toggleTheme();
+      }
+    }
+
+    ThemeCard.define({
+      name: 'theme-card',
+      template: html`
+        <div class="card">
+          <h3>${x => x.title}</h3>
+          <p>This card uses Design Tokens for theming.</p>
+          <p>Toggle the theme to see tokens update automatically.</p>
+          <fast-button @click=${x => x.toggleTheme()}>Toggle Theme</fast-button>
+        </div>
+      `,
+      styles: css`
+        :host {
+          display: block;
+          padding: var(--spacing);
+        }
+        .card {
+          background: var(--background-color);
+          color: var(--text-color);
+          padding: var(--spacing);
+          border-radius: var(--border-radius);
+          border: 2px solid var(--accent-color);
+          transition: all 0.3s ease;
+        }
+        h3 {
+          margin-top: 0;
+          color: var(--accent-color);
+        }
+        fast-button {
+          margin-top: 16px;
+        }
+      `
+    });
+
+    console.log('FAST Design Tokens demo loaded');
+    console.log('Tokens created:', ['background-color', 'text-color', 'accent-color', 'spacing', 'border-radius']);
+  </script>
+</head>
+<body>
+  <h1>FAST: Design Tokens</h1>
+  <p>Design Tokens are reactive CSS custom properties that update all usages automatically.</p>
+
+  <theme-card title="Themed Card"></theme-card>
+
+  <h2>How it works:</h2>
+  <pre>
+// Create token with default value
+const bgColor = DesignToken.create('bg-color').withDefault('#ffffff');
+
+// Use in CSS — maps to --bg-color
+css`:host { background: var(--bg-color); }`
+
+// Update token — ALL usages update automatically!
+bgColor.setValue('#000000');
+  </pre>
+</body>
+</html>
