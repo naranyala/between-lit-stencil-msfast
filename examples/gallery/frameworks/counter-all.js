@@ -3,7 +3,7 @@
 // Run: bun run examples/comparisons/01-counter-all-frameworks.js
 
 import { LitElement, html, css } from 'lit';
-import { signal, computed, effect } from '../custom/signal.js';
+import { signal, computed, effect } from '../../core/signal.js';
 
 console.log('╔══════════════════════════════════════════════════════╗');
 console.log('║  Counter Component: 4 Framework Comparison         ║');

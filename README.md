@@ -19,6 +19,9 @@ While native Web Components (Custom Elements, Shadow DOM, HTML Templates) are su
 | **Bundle Size** | ~5KB (Tiny) | Varies (compiled) | ~8KB (Small) |
 | **Best For** | Simplicity, standalone UI | Multi-framework design systems | Adaptive theming, enterprise |
 
+**Design Validation:** These claims are verified via our architectural testing suite in `examples/lab/design-assertions.js`, which simulates the internal update cycles of each framework.
+
+
 ### 1.2 Framework Profiles
 
 **Lit (by Google)**
@@ -173,7 +176,20 @@ DesignToken.create('name').withDefault(value) → CSS custom properties
 | **FAST** | Complex adaptive theming, white-labeling, Microsoft/Fluent ecosystem, need design tokens, maximum performance |
 | **Build your own** | Need fine-grained signals, no VDOM overhead, custom primitives (ElementInternals, DSD), full control |
 
-### 2.8 Key Takeaways for Building Your Own
+### 2.8 The "Outer Loop": Systems Integration
+
+Beyond the internal update cycle, we compare how these frameworks handle system-level integration:
+
+| Feature | **Lit / Stencil / FAST** | **Custom Signal Framework** | **Winner** |
+| :--- | :--- | :--- | :--- |
+| **Cross-Component State** | Context Providers / DI Containers | Global Signal Stores | **Signals** (No provider hell) |
+| **Browser Form Integration** | Hidden inputs / Manual sync | `ElementInternals` / `setFormValue` | **Custom** (Zero DOM bloat) |
+| **Async Data Flow** | Manual `loading/error` flags | Declarative `createResource` | **Custom** (Reactive async) |
+| **Memory Management** | Manual `unsubscribe` / Lifecycle hooks | Auto-dependency tracking | **Signals** (Leak-resistant) |
+
+**Verification:** These comparisons are implemented as runnable simulations in `examples/comparisons/08-state-orbit.js` through `11-lifecycle-leak.js`.
+
+### 2.9 Key Takeaways for Building Your Own
 
 From studying these frameworks, the essential patterns are:
 

@@ -2,7 +2,7 @@
 // Borrows patterns from Lit, Stencil, and FAST
 // Run: bun run examples/custom/01-signal-element.js
 
-import { signal, computed, effect, batch, untrack } from './signal.js';
+import { signal, computed, effect, batch, untrack } from '../../core/signal.js';
 
 console.log('╔══════════════════════════════════════════════════════╗');
 console.log('║  Custom Framework: Signal-based Element             ║');

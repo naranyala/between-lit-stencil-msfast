@@ -7,35 +7,41 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const examples = [
-  // Lit examples (runnable in Bun)
-  'lit/01-basic-component.js',
-  'lit/02-directives.js',
-  'lit/03-lifecycle.js',
-  'lit/04-events.js',
+  // Basics
+  'basics/lit-basic.js',
+  'basics/lit-directives.js',
+  'basics/lit-lifecycle.js',
+  'basics/lit-events.js',
 
-  // Comparisons (runnable in Bun)
-  'comparisons/01-counter-all-frameworks.js',
-  'comparisons/02-reactivity-deep-dive.js',
-  'comparisons/03-template-rendering.js',
-  'comparisons/04-styling-systems.js',
-  'comparisons/05-lifecycle-events.js',
+  // Gallery - Frameworks
+  'gallery/frameworks/counter-all.js',
+  'gallery/frameworks/reactivity-deep-dive.js',
+  'gallery/frameworks/template-rendering.js',
+  'gallery/frameworks/styling-systems.js',
+  'gallery/frameworks/lifecycle-events.js',
 
-  // Demos (runnable in Bun - use Lit implementations)
-  'demos/01-todo-lit.js',
-  'demos/02-user-profile-lit.js',
-  'demos/03-toggle-lit.js',
-  'demos/04-datatable-lit.js',
-  'demos/05-09-remaining-lit.js',
+  // Gallery - Components
+  'gallery/components/todo-lit.js',
+  'gallery/components/user-profile-lit.js',
+  'gallery/components/toggle-lit.js',
+  'gallery/components/datatable-lit.js',
+  'gallery/components/remaining-lit.js',
+  'gallery/components/signal-element.js',
 
-  // Custom framework (runnable in Bun)
-  'custom/01-signal-element.js',
+  // Lab - Architectural Proofs
+  'lab/rendering-efficiency.js',
+  'lab/design-assertions.js',
+  'lab/state-orbit.js',
+  'lab/form-bridge.js',
+  'lab/async-boundary.js',
+  'lab/memory-leak-test.js',
 ];
 
-// FAST and Stencil examples require browser - skip in Bun runner
+// Browser-only examples
 const browserExamples = [
-  'fast/01-basic-component.html',
-  'fast/02-design-tokens.html',
-  'stencil/01-component-patterns.js',
+  'basics/fast-basic.html',
+  'basics/fast-tokens.html',
+  'basics/stencil-basic.js',
 ];
 
 let passed = 0;

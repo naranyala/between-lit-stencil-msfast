@@ -2,7 +2,7 @@
 // Lit Parts vs Stencil VDOM vs FAST Observable Bindings vs Custom Parts
 // Run: bun run examples/comparisons/03-template-rendering.js
 
-import { signal, computed, effect } from '../custom/signal.js';
+import { signal, computed, effect } from '../../core/signal.js';
 
 console.log('╔══════════════════════════════════════════════════════╗');
 console.log('║  Template Rendering: 4 Approaches Compared         ║');

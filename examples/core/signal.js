@@ -28,14 +28,16 @@ export function computed(fn) {
   let dirty = true;
   const subscribers = new Set();
 
+  const invalidate = () => {
+    dirty = true;
+    for (const s of subscribers) s();
+  };
+
   const read = () => {
     if (currentEffect) subscribers.add(currentEffect);
     if (dirty) {
       const prev = currentEffect;
-      currentEffect = () => {
-        dirty = true;
-        for (const s of subscribers) s();
-      };
+      currentEffect = invalidate;
       cached = fn();
       currentEffect = prev;
       dirty = false;
@@ -43,12 +45,22 @@ export function computed(fn) {
     return cached;
   };
 
-  read.invalidate = () => {
-    dirty = true;
-    for (const s of subscribers) s();
-  };
+  read.invalidate = invalidate;
 
   return read;
+}
+
+let batching = false;
+const pendingEffects = new Set();
+
+export function batch(fn) {
+  batching = true;
+  fn();
+  batching = false;
+  for (const effect of pendingEffects) {
+    effect();
+  }
+  pendingEffects.clear();
 }
 
 export function effect(fn) {
@@ -61,11 +73,18 @@ export function effect(fn) {
       currentEffect = prev;
     }
   };
-  execute();
-}
-
-export function batch(fn) {
-  fn();
+  
+  // Wrap the execution to handle batching
+  const wrappedExecute = () => {
+    if (batching) {
+      pendingEffects.add(wrappedExecute);
+    } else {
+      execute();
+    }
+  };
+  
+  wrappedExecute();
+  return wrappedExecute; // return for cleanup if needed
 }
 
 export function untrack(fn) {
@@ -76,6 +95,34 @@ export function untrack(fn) {
   } finally {
     currentEffect = prev;
   }
+}
+
+export function createResource(source, fetcher) {
+  const data = signal(null);
+  const pending = signal(true);
+  const error = signal(null);
+
+  const update = async () => {
+    pending.set(true);
+    error.set(null);
+    try {
+      const val = await fetcher(source());
+      data.set(val);
+    } catch (e) {
+      error.set(e);
+    } finally {
+      pending.set(false);
+    }
+  };
+
+  effect(update);
+
+  return {
+    data,
+    pending,
+    error,
+    refetch: update
+  };
 }
 
 export function peek(sig) {

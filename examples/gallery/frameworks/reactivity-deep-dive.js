@@ -2,7 +2,7 @@
 // Lit Getter/Setter vs Stencil Proxy vs FAST Observable vs Custom Signal
 // Run: bun run examples/comparisons/02-reactivity-deep-dive.js
 
-import { signal, computed, effect, batch, untrack } from '../custom/signal.js';
+import { signal, computed, effect, batch, untrack } from '../../core/signal.js';
 
 console.log('╔══════════════════════════════════════════════════════╗');
 console.log('║  Reactivity Deep Dive: 4 Systems Compared          ║');

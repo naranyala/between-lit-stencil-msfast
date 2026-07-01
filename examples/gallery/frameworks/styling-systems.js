@@ -2,7 +2,7 @@
 // Lit Constructible Sheets vs Stencil Scoped CSS vs FAST Design Tokens vs Custom
 // Run: bun run examples/comparisons/04-styling-systems.js
 
-import { signal, effect } from '../custom/signal.js';
+import { signal, computed, effect } from '../../core/signal.js';
 
 console.log('╔══════════════════════════════════════════════════════╗');
 console.log('║  Styling Systems: 4 Approaches Compared            ║');
