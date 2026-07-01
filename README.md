@@ -13,6 +13,17 @@ This repository is a living lab. You can validate every architectural claim made
 bun run examples/run-all.js
 ```
 
+### 🗺️ Repository Map
+
+To navigate the proofs and examples, follow this structure:
+
+| Directory | Purpose | Key Content |
+| :--- | :--- | :--- |
+| `examples/core/` | **The Engine** | The minimal signal implementation (`signal.js`), the base class (`element.js`), and the reactive template binder (`html.js`). |
+| `examples/lab/` | **The Proofs** | Mathematical and architectural simulations. Use these to see *why* signals outperform VDOMs (e.g., `design-assertions.js`, `memory-leak-test.js`). |
+| `examples/gallery/` | **The Showcase** | Real-world applications of the patterns. Includes framework head-to-heads (`/frameworks`) and complex components (`/components`). |
+| `examples/basics/` | **The Onboarding** | "Hello World" examples for Lit, FAST, and Stencil to see their standard API surface. |
+
 ---
 
 ## Part 1: The Framework Landscape
