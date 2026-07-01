@@ -110,21 +110,149 @@ Beyond the internal update cycle, we compare system-level integration in `exampl
 
 ---
 
-## Part 3: Architecting a Custom Signal-Based Framework
+## Part 3: Building Your Own Framework (Step-by-Step)
 
-The ideal "next-gen" framework is built on **Signals**, entirely bypassing component-level re-renders.
+The ideal "next-gen" framework is built on **Signals**, entirely bypassing component-level re-renders. Here is how to build it from the ground up.
 
-### 3.1 Core Architecture
-**The Engine:** `examples/core/signal.js` implements a dependency-tracking system where `effect` automatically discovers which `signal` it depends on.
+### Step 1: The Reactivity Engine (The Brain)
+The core is a **dependency-tracking system**. When a signal is read inside an `effect`, the signal "remembers" that effect. When the signal changes, it notifies all its effects to re-run.
 
-### 3.2 Base Class (`SignalElement`)
-Extends `HTMLElement` and manages Shadow DOM. In a full implementation, this class would coordinate the mapping between signals and the DOM.
+```javascript
+// core/signal.js
+let currentEffect = null;
 
-### 3.3 Top API Primitives
-1. **`ElementInternals`**: Lets components act as native `<input>` elements.
-2. **`untrack()`**: Pauses dependency tracking to prevent infinite loops.
-3. **`batch()`**: Groups multiple signal updates into one DOM update.
-4. **`createResource()`**: Turns async fetch states into reactive signals.
+export function signal(value) {
+  const subscribers = new Set();
+  const read = () => {
+    if (currentEffect) subscribers.add(currentEffect);
+    return value;
+  };
+  read.set = (next) => {
+    if (value === next) return;
+    value = next;
+    subscribers.forEach(fn => fn());
+  };
+  return read;
+}
+
+export function effect(fn) {
+  const execute = () => {
+    currentEffect = execute;
+    fn();
+    currentEffect = null;
+  };
+  execute();
+}
+
+export function computed(fn) {
+  const s = signal();
+  effect(() => s.set(fn()));
+  return s;
+}
+```
+
+### Step 2: The Base Element (The Skeleton)
+To make this work with Web Components, we create a base class that handles the Shadow DOM and provides a bridge for reactive updates.
+
+```javascript
+// core/element.js
+export class SignalElement extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+  }
+
+  // Native performance styling via Adopted Stylesheets
+  setStyles(cssText) {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(cssText);
+    this.shadowRoot.adoptedStyleSheets = [sheet];
+  }
+
+  // Surgical binding: connect a signal directly to a DOM property
+  bind(element, prop, sig) {
+    effect(() => {
+      element[prop] = sig();
+    });
+  }
+}
+```
+
+### Step 3: The Reactive Template Engine (The Voice)
+Instead of a Virtual DOM, we use a **Placeholder System**. We mark where signals go in the HTML and replace those markers with "Live Nodes" that update themselves.
+
+```javascript
+// core/html.js
+import { effect } from './signal.js';
+
+export function html(strings, ...values) {
+  return {
+    render(container) {
+      // 1. Create HTML with placeholders like __BIND_0__
+      let htmlString = strings.reduce((acc, str, i) => 
+        acc + str + (values[i] !== undefined ? `__BIND_${i}__` : ''), '');
+      
+      const fragment = document.createRange().createContextualFragment(htmlString);
+      const root = fragment.firstElementChild || fragment;
+
+      // 2. Replace placeholders with Reactive Text Nodes
+      values.forEach((val, i) => {
+        const placeholder = `__BIND_${i}__`;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let node;
+        while (node = walker.nextNode()) {
+          if (node.textContent.includes(placeholder)) {
+            const signalNode = document.createTextNode('');
+            // Create a permanent link between the signal and this DOM node
+            effect(() => {
+              const resolved = typeof val === 'function' ? val() : val;
+              signalNode.textContent = typeof resolved === 'function' ? resolved() : resolved;
+            });
+            node.parentNode.replaceChild(signalNode, node);
+          }
+        }
+      });
+      return root;
+    }
+  };
+}
+```
+
+### Step 4: Final Assembly (The Body)
+Now we can define a component that is entirely reactive, with zero VDOM overhead.
+
+```javascript
+import { SignalElement } from './core/element.js';
+import { html } from './core/html.js';
+import { signal, computed } from './core/signal.js';
+
+class MyCounter extends SignalElement {
+  constructor() {
+    super();
+    this.count = signal(0);
+    this.doubled = computed(() => this.count() * 2);
+
+    this.setStyles(':host { font-family: sans-serif; } .val { color: blue; }');
+
+    const template = html`
+      <div>
+        Count: <span class="val">${() => this.count()}</span>
+        Double: <span>${() => this.doubled()}</span>
+        <button id="inc">+</button>
+      </div>
+    `;
+
+    this.shadowRoot.appendChild(template.render());
+    this.shadowRoot.querySelector('#inc').onclick = () => this.count.set(this.count() + 1);
+  }
+}
+customElements.define('my-counter', MyCounter);
+```
+
+### Why this is superior to VDOM:
+1. **Time Complexity**: Updating a value is $O(1)$. We don't traverse a tree; we trigger a specific function that updates a specific node.
+2. **Memory**: No virtual copies of the DOM are kept in memory.
+3. **Zero Re-renders**: The `render()` function is called **exactly once** in the component's lifetime. After that, only the signals move.
 
 ---
 
